@@ -10,13 +10,19 @@ import {
   Alert,
   Modal,
   Image,
+  TextInput,
 } from 'react-native';
 import { useNavigation, DrawerActions } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import * as Clipboard from 'expo-clipboard';
 import QRCode from 'react-native-qrcode-svg';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useApp } from '../context/AppContext';
 import { traktApi } from '../services/api';
+import axios from 'axios';
+
+// Backend API URL
+const API_BASE_URL = 'https://rd-scraper-test.preview.emergentagent.com/api';
 
 export default function SettingsScreen() {
   const navigation = useNavigation();
@@ -35,6 +41,88 @@ export default function SettingsScreen() {
   const [verificationUrl, setVerificationUrl] = useState(null);
   const [isPolling, setIsPolling] = useState(false);
   const [error, setError] = useState(null);
+  
+  // IPTorrents state
+  const [showIptAuth, setShowIptAuth] = useState(false);
+  const [iptUid, setIptUid] = useState('');
+  const [iptPass, setIptPass] = useState('');
+  const [iptStatus, setIptStatus] = useState({ configured: false, uid: null });
+  const [iptLoading, setIptLoading] = useState(false);
+  const [iptError, setIptError] = useState(null);
+
+  // Load IPTorrents status on mount
+  useEffect(() => {
+    loadIptStatus();
+  }, []);
+
+  const loadIptStatus = async () => {
+    try {
+      // First check local storage
+      const savedUid = await AsyncStorage.getItem('ipt_uid');
+      const savedPass = await AsyncStorage.getItem('ipt_pass');
+      
+      if (savedUid && savedPass) {
+        // Re-configure the backend with saved cookies
+        await axios.post(`${API_BASE_URL}/iptorrents/cookies?uid=${encodeURIComponent(savedUid)}&passkey=${encodeURIComponent(savedPass)}`);
+        setIptStatus({ configured: true, uid: savedUid.substring(0, 8) + '...' });
+      } else {
+        // Check backend status
+        const response = await axios.get(`${API_BASE_URL}/iptorrents/status`);
+        setIptStatus(response.data);
+      }
+    } catch (err) {
+      console.error('[IPT] Status check error:', err);
+    }
+  };
+
+  const saveIptCookies = async () => {
+    if (!iptUid.trim() || !iptPass.trim()) {
+      setIptError('Please enter both UID and Pass cookies');
+      return;
+    }
+
+    setIptLoading(true);
+    setIptError(null);
+
+    try {
+      // Save to backend
+      await axios.post(`${API_BASE_URL}/iptorrents/cookies?uid=${encodeURIComponent(iptUid)}&passkey=${encodeURIComponent(iptPass)}`);
+      
+      // Save to local storage for persistence
+      await AsyncStorage.setItem('ipt_uid', iptUid);
+      await AsyncStorage.setItem('ipt_pass', iptPass);
+      
+      setIptStatus({ configured: true, uid: iptUid.substring(0, 8) + '...' });
+      setShowIptAuth(false);
+      setIptUid('');
+      setIptPass('');
+      Alert.alert('Success', 'IPTorrents cookies saved! Private tracker results will now be included in searches.');
+    } catch (err) {
+      console.error('[IPT] Save cookies error:', err);
+      setIptError('Failed to save cookies. Please check your values and try again.');
+    }
+    setIptLoading(false);
+  };
+
+  const disconnectIpt = async () => {
+    Alert.alert(
+      'Disconnect IPTorrents',
+      'Are you sure you want to disconnect your IPTorrents account?',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        { 
+          text: 'Disconnect', 
+          style: 'destructive',
+          onPress: async () => {
+            await AsyncStorage.removeItem('ipt_uid');
+            await AsyncStorage.removeItem('ipt_pass');
+            setIptStatus({ configured: false, uid: null });
+            // Note: Backend will still have cookies until restart, but they won't be used for new searches
+          }
+        },
+      ]
+    );
+  };
 
   const startTraktAuth = async () => {
     setError(null);
@@ -269,6 +357,49 @@ export default function SettingsScreen() {
           </View>
         )}
 
+        {/* IPTorrents Section */}
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>IPTorrents (Private Tracker)</Text>
+          {iptStatus.configured ? (
+            <View style={styles.accountCard}>
+              <View style={styles.accountInfo}>
+                <View style={[styles.accountIcon, { backgroundColor: 'rgba(139, 92, 246, 0.1)' }]}>
+                  <Ionicons name="lock-closed" size={24} color="#8B5CF6" />
+                </View>
+                <View style={styles.accountDetails}>
+                  <Text style={styles.accountName}>IPTorrents</Text>
+                  <Text style={styles.accountStatus}>UID: {iptStatus.uid}</Text>
+                </View>
+              </View>
+              <View style={styles.connectedBadge}>
+                <View style={styles.connectedDot} />
+                <Text style={styles.connectedText}>Active</Text>
+              </View>
+            </View>
+          ) : (
+            <TouchableOpacity style={styles.connectButton} onPress={() => setShowIptAuth(true)}>
+              <View style={[styles.accountIcon, { backgroundColor: 'rgba(139, 92, 246, 0.1)' }]}>
+                <Ionicons name="lock-closed" size={24} color="#8B5CF6" />
+              </View>
+              <View style={styles.connectDetails}>
+                <Text style={styles.connectTitle}>Connect IPTorrents</Text>
+                <Text style={styles.connectSubtitle}>Access high-quality private tracker torrents</Text>
+              </View>
+              <Ionicons name="chevron-forward" size={24} color="#A1A1AA" />
+            </TouchableOpacity>
+          )}
+          
+          {iptStatus.configured && (
+            <TouchableOpacity 
+              style={styles.disconnectButton} 
+              onPress={disconnectIpt}
+            >
+              <Ionicons name="unlink" size={18} color="#EF4444" />
+              <Text style={styles.disconnectText}>Disconnect IPTorrents</Text>
+            </TouchableOpacity>
+          )}
+        </View>
+
         {/* Logout Section */}
         <View style={styles.section}>
           <TouchableOpacity style={styles.logoutButton} onPress={handleLogout}>
@@ -278,7 +409,7 @@ export default function SettingsScreen() {
         </View>
 
         <View style={styles.footer}>
-          <Text style={styles.footerText}>The Alpha Flix v1.3.0</Text>
+          <Text style={styles.footerText}>The Alpha Flix v1.4.0</Text>
           <Text style={styles.footerSubtext}>Developed by The Alpha with AI code clean up</Text>
         </View>
       </ScrollView>
@@ -364,6 +495,101 @@ export default function SettingsScreen() {
                 onPress={() => Linking.openURL('https://trakt.tv/auth/join')}
               >
                 Sign up free
+              </Text>
+            </Text>
+          </View>
+        </View>
+      </Modal>
+
+      {/* IPTorrents Auth Modal */}
+      <Modal
+        visible={showIptAuth}
+        animationType="slide"
+        transparent={true}
+        onRequestClose={() => setShowIptAuth(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <TouchableOpacity style={styles.closeButton} onPress={() => {
+              setShowIptAuth(false);
+              setIptError(null);
+              setIptUid('');
+              setIptPass('');
+            }}>
+              <Ionicons name="close" size={24} color="#A1A1AA" />
+            </TouchableOpacity>
+
+            <View style={styles.modalHeader}>
+              <Ionicons name="lock-closed" size={48} color="#8B5CF6" />
+              <Text style={styles.modalTitle}>Connect IPTorrents</Text>
+            </View>
+
+            <View style={styles.iptInstructions}>
+              <Text style={styles.iptInstructionTitle}>How to get your cookies:</Text>
+              <Text style={styles.iptInstructionText}>
+                1. Login to iptorrents.com in your browser{'\n'}
+                2. Open browser Developer Tools (F12){'\n'}
+                3. Go to Application → Cookies → iptorrents.com{'\n'}
+                4. Copy the 'uid' and 'pass' cookie values
+              </Text>
+            </View>
+
+            <View style={styles.inputContainer}>
+              <Text style={styles.inputLabel}>UID Cookie</Text>
+              <TextInput
+                style={styles.textInput}
+                value={iptUid}
+                onChangeText={setIptUid}
+                placeholder="Enter your uid cookie value"
+                placeholderTextColor="#71717A"
+                autoCapitalize="none"
+                autoCorrect={false}
+              />
+            </View>
+
+            <View style={styles.inputContainer}>
+              <Text style={styles.inputLabel}>Pass Cookie</Text>
+              <TextInput
+                style={styles.textInput}
+                value={iptPass}
+                onChangeText={setIptPass}
+                placeholder="Enter your pass cookie value"
+                placeholderTextColor="#71717A"
+                autoCapitalize="none"
+                autoCorrect={false}
+                secureTextEntry
+              />
+            </View>
+
+            {iptError && (
+              <View style={styles.errorContainer}>
+                <Ionicons name="alert-circle" size={20} color="#EF4444" />
+                <Text style={styles.errorText}>{iptError}</Text>
+              </View>
+            )}
+
+            <TouchableOpacity 
+              style={[styles.saveButton, iptLoading && styles.saveButtonDisabled]}
+              onPress={saveIptCookies}
+              disabled={iptLoading}
+            >
+              {iptLoading ? (
+                <ActivityIndicator size="small" color="#050505" />
+              ) : (
+                <>
+                  <Ionicons name="checkmark" size={20} color="#050505" />
+                  <Text style={styles.saveButtonText}>Save Cookies</Text>
+                </>
+              )}
+            </TouchableOpacity>
+
+            <Text style={styles.modalFooter}>
+              Don't have IPTorrents?{' '}
+              <Text 
+                style={styles.link}
+                onPress={() => Linking.openURL('https://iptorrents.com')}
+              >
+                Visit website
               </Text>
             </Text>
           </View>
@@ -703,5 +929,62 @@ const styles = StyleSheet.create({
   link: {
     color: '#ED1C24',
     textDecorationLine: 'underline',
+  },
+  // IPTorrents styles
+  iptInstructions: {
+    backgroundColor: 'rgba(139, 92, 246, 0.1)',
+    padding: 16,
+    borderRadius: 12,
+    marginBottom: 20,
+    borderWidth: 1,
+    borderColor: 'rgba(139, 92, 246, 0.3)',
+  },
+  iptInstructionTitle: {
+    color: '#8B5CF6',
+    fontSize: 14,
+    fontWeight: '600',
+    marginBottom: 8,
+  },
+  iptInstructionText: {
+    color: '#A1A1AA',
+    fontSize: 13,
+    lineHeight: 20,
+  },
+  inputContainer: {
+    marginBottom: 16,
+  },
+  inputLabel: {
+    color: '#E5E5E5',
+    fontSize: 14,
+    fontWeight: '500',
+    marginBottom: 8,
+  },
+  textInput: {
+    backgroundColor: '#050505',
+    borderWidth: 1,
+    borderColor: '#27272A',
+    borderRadius: 8,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    color: '#E5E5E5',
+    fontSize: 16,
+  },
+  saveButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#8B5CF6',
+    paddingVertical: 14,
+    borderRadius: 8,
+    gap: 8,
+    marginTop: 8,
+  },
+  saveButtonDisabled: {
+    opacity: 0.6,
+  },
+  saveButtonText: {
+    color: '#050505',
+    fontWeight: 'bold',
+    fontSize: 16,
   },
 });

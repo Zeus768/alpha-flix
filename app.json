@@ -27,7 +27,7 @@
       "permissions": [
         "android.permission.INTERNET"
       ],
-      "versionCode": 5,
+      "versionCode": 6,
       "isTV": true,
       "intentFilters": [
         {

@@ -1,7 +1,7 @@
 import axios from 'axios';
 
 // Backend API URL - Update this when deploying
-const API_BASE_URL = 'https://flux-cast.preview.emergentagent.com/api';
+const API_BASE_URL = 'https://rd-scraper-test.preview.emergentagent.com/api';
 
 // Real-Debrid OAuth endpoints
 const RD_OAUTH_URL = 'https://api.real-debrid.com/oauth/v2';
