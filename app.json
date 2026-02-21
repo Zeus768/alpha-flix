@@ -1,0 +1,55 @@
+{
+  "expo": {
+    "name": "Alpha Flix",
+    "slug": "alpha-flix",
+    "version": "1.3.0",
+    "orientation": "default",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "dark",
+    "splash": {
+      "image": "./assets/splash.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#050505"
+    },
+    "assetBundlePatterns": [
+      "**/*"
+    ],
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.alphaflix.app"
+    },
+    "android": {
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#050505"
+      },
+      "package": "com.alphaflix.app",
+      "permissions": [
+        "android.permission.INTERNET"
+      ],
+      "versionCode": 4,
+      "isTV": true,
+      "intentFilters": [
+        {
+          "action": "MAIN",
+          "category": ["LEANBACK_LAUNCHER"]
+        }
+      ]
+    },
+    "web": {
+      "favicon": "./assets/favicon.png"
+    },
+    "plugins": [
+      "expo-font",
+      "expo-secure-store"
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "4cf6dec0-a842-41b5-ab65-e0ed9327d451"
+      },
+      "developer": "The Alpha with AI code clean up"
+    },
+    "owner": "thealphaman",
+    "description": "Premium Streaming App - Developed by The Alpha with AI code clean up"
+  }
+}
