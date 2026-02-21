@@ -143,21 +143,28 @@ export default function HomeScreen() {
 
   const loadContent = async () => {
     try {
+      console.log('[HomeScreen] Loading content...');
       const [trendingRes, popMoviesRes, popTVRes, newMoviesRes, newTVRes, inCinemaRes] = await Promise.all([
-        api.getTrending('all', 50),
-        api.getPopular('movie', 50),
-        api.getPopular('tv', 50),
-        api.getNewReleases('movie', 50),
-        api.getNewReleases('tv', 50),
-        api.getInCinema(50),
+        api.getTrending('all', 50).catch(e => { console.error('Trending error:', e); return []; }),
+        api.getPopular('movie', 50).catch(e => { console.error('Popular movies error:', e); return []; }),
+        api.getPopular('tv', 50).catch(e => { console.error('Popular TV error:', e); return []; }),
+        api.getNewReleases('movie', 50).catch(e => { console.error('New movies error:', e); return []; }),
+        api.getNewReleases('tv', 50).catch(e => { console.error('New TV error:', e); return []; }),
+        api.getInCinema(50).catch(e => { console.error('In cinema error:', e); return []; }),
       ]);
       
-      setTrending(trendingRes);
-      setPopularMovies(popMoviesRes);
-      setPopularTV(popTVRes);
-      setNewMovies(newMoviesRes);
-      setNewTV(newTVRes);
-      setInCinema(inCinemaRes);
+      console.log('[HomeScreen] Loaded:', {
+        trending: trendingRes?.length,
+        popMovies: popMoviesRes?.length,
+        popTV: popTVRes?.length,
+      });
+      
+      setTrending(trendingRes || []);
+      setPopularMovies(popMoviesRes || []);
+      setPopularTV(popTVRes || []);
+      setNewMovies(newMoviesRes || []);
+      setNewTV(newTVRes || []);
+      setInCinema(inCinemaRes || []);
     } catch (error) {
       console.error('Load content error:', error);
     }

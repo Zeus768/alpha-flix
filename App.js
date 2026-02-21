@@ -19,6 +19,7 @@ import SettingsScreen from './src/screens/SettingsScreen';
 import CategoryScreen from './src/screens/CategoryScreen';
 import PodcastScreen from './src/screens/PodcastScreen';
 import SportsScreen from './src/screens/SportsScreen';
+import SplashScreen from './src/screens/SplashScreen';
 
 // Components
 import CustomDrawer from './src/components/CustomDrawer';
@@ -148,8 +149,19 @@ export default function App() {
     setIsLoading(false);
   };
 
+  const [showSplash, setShowSplash] = useState(true);
+
   if (isLoading) {
     return null;
+  }
+
+  // Show splash animation first
+  if (showSplash) {
+    return (
+      <GestureHandlerRootView style={{ flex: 1 }}>
+        <SplashScreen onFinish={() => setShowSplash(false)} />
+      </GestureHandlerRootView>
+    );
   }
 
   return (

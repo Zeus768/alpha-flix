@@ -111,18 +111,35 @@ export default function ContentDetailScreen() {
     setSourcesLoading(true);
     setSources([]);
     setError(null);
+    
+    const title = item.title || details?.title;
+    const year = item.year || details?.year;
+    
+    console.log('[Sources] Loading for:', { title, year, type: item.type });
+    
+    if (!title) {
+      setError('No title available');
+      setSourcesLoading(false);
+      return;
+    }
+    
     try {
       const data = await api.getTorrentSources(
         item.type || 'movie',
-        item.title,
-        item.year,
+        title,
+        year,
         rdToken,
         item.tmdb_id
       );
+      console.log('[Sources] Found:', data?.length || 0);
       setSources(data || []);
+      
+      if (!data || data.length === 0) {
+        setError('No torrents found. Try a different title or check back later.');
+      }
     } catch (err) {
       console.error('Load sources error:', err);
-      setError('Failed to load sources');
+      setError('Failed to load sources. Check your connection.');
     }
     setSourcesLoading(false);
   };
