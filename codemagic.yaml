@@ -2,24 +2,19 @@ workflows:
   android-build:
     name: Android Build
     max_build_duration: 60
-    instance_type: mac_mini_m1
+    instance_type: linux_x2
     environment:
-      node: 18.17.0
+      java: 17
+      node: 18
+      android_sdk: 34
     scripts:
       - name: Install dependencies
         script: |
           npm install
-      - name: Install Expo CLI
-        script: |
-          npm install -g expo-cli eas-cli
       - name: Build Android APK
         script: |
           npx expo prebuild --platform android --clean
           cd android
-          ./gradlew assembleRelease
+          ./gradlew assembleDebug
     artifacts:
       - android/app/build/outputs/**/*.apk
-    publishing:
-      email:
-        recipients:
-          - alphap7505@gmail.com
