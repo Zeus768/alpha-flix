@@ -6,7 +6,6 @@ workflows:
     environment:
       java: 17
       node: 18
-      android_sdk: 34
     scripts:
       - name: Install dependencies
         script: |
