@@ -13,9 +13,14 @@ workflows:
       - name: Build Android APK
         script: |
           npx expo prebuild --platform android --clean
+          
+          # Configure signing in gradle.properties
+          echo "MYAPP_UPLOAD_STORE_FILE=../../alphaflix.keystore" >> android/gradle.properties
+          echo "MYAPP_UPLOAD_KEY_ALIAS=alphaflix" >> android/gradle.properties
+          echo "MYAPP_UPLOAD_STORE_PASSWORD=alphaflix123" >> android/gradle.properties
+          echo "MYAPP_UPLOAD_KEY_PASSWORD=alphaflix123" >> android/gradle.properties
+          
           cd android
-          ./gradlew bundleRelease
-          ./gradlew assembleRelease
+          ./gradlew assembleRelease -PMYAPP_UPLOAD_STORE_FILE=../../alphaflix.keystore -PMYAPP_UPLOAD_KEY_ALIAS=alphaflix -PMYAPP_UPLOAD_STORE_PASSWORD=alphaflix123 -PMYAPP_UPLOAD_KEY_PASSWORD=alphaflix123
     artifacts:
       - android/app/build/outputs/**/*.apk
-      - android/app/build/outputs/**/*.aab
