@@ -130,24 +130,30 @@ export const api = {
   },
 
   // Torrent sources for specific episode
-  getEpisodeSources: async (showTitle, tmdbId, season, episode, year, rdToken = null) => {
+  getEpisodeSources: async (showTitle, tmdbId, season, episode, year, rdToken = null, imdbId = null) => {
     const searchTitle = `${showTitle} S${String(season).padStart(2, '0')}E${String(episode).padStart(2, '0')}`;
     let url = `${API_BASE_URL}/sources/tv/${encodeURIComponent(searchTitle)}?year=${year || ''}&tmdb_id=${tmdbId}&season=${season}&episode=${episode}`;
     if (rdToken) {
       url += `&rd_token=${rdToken}`;
+    }
+    if (imdbId) {
+      url += `&imdb_id=${imdbId}`;
     }
     const response = await axios.get(url);
     return response.data;
   },
 
   // Torrent sources
-  getTorrentSources: async (type, title, year, rdToken = null, tmdbId = null) => {
+  getTorrentSources: async (type, title, year, rdToken = null, tmdbId = null, imdbId = null) => {
     let url = `${API_BASE_URL}/sources/${type}/${encodeURIComponent(title)}?year=${year || ''}`;
     if (tmdbId) {
       url += `&tmdb_id=${tmdbId}`;
     }
     if (rdToken) {
       url += `&rd_token=${rdToken}`;
+    }
+    if (imdbId) {
+      url += `&imdb_id=${imdbId}`;
     }
     const response = await axios.get(url);
     return response.data;

@@ -49,6 +49,10 @@ export default function SettingsScreen() {
   const [iptStatus, setIptStatus] = useState({ configured: false, uid: null });
   const [iptLoading, setIptLoading] = useState(false);
   const [iptError, setIptError] = useState(null);
+  
+  // Donation modal state
+  const [showDonateModal, setShowDonateModal] = useState(false);
+  const DONATION_URL = 'https://buymeacoffee.com/zeus768?new=1';
 
   // Load IPTorrents status on mount
   useEffect(() => {
@@ -268,6 +272,15 @@ export default function SettingsScreen() {
           resizeMode="contain"
         />
         <Text style={styles.headerTitle}>Settings</Text>
+        
+        {/* Donation Button */}
+        <TouchableOpacity 
+          style={styles.donateButton}
+          onPress={() => setShowDonateModal(true)}
+        >
+          <Ionicons name="heart" size={20} color="#FF6B6B" />
+          <Text style={styles.donateButtonText}>Donate</Text>
+        </TouchableOpacity>
       </View>
 
       <ScrollView style={styles.content}>
@@ -595,6 +608,61 @@ export default function SettingsScreen() {
           </View>
         </View>
       </Modal>
+
+      {/* Donation Modal */}
+      <Modal
+        visible={showDonateModal}
+        animationType="slide"
+        transparent={true}
+        onRequestClose={() => setShowDonateModal(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <TouchableOpacity style={styles.closeButton} onPress={() => setShowDonateModal(false)}>
+              <Ionicons name="close" size={24} color="#A1A1AA" />
+            </TouchableOpacity>
+
+            <View style={styles.modalHeader}>
+              <Ionicons name="heart" size={48} color="#FF6B6B" />
+              <Text style={styles.modalTitle}>Support Development</Text>
+            </View>
+
+            <Text style={styles.donateDescription}>
+              If you enjoy using Alpha Flix, consider buying me a coffee! Your support helps keep the app running and enables new features.
+            </Text>
+
+            <View style={styles.qrContainer}>
+              <QRCode
+                value={DONATION_URL}
+                size={180}
+                backgroundColor="#18181B"
+                color="#FFFFFF"
+              />
+            </View>
+
+            <Text style={styles.qrHint}>Scan QR code to donate</Text>
+
+            <TouchableOpacity 
+              style={styles.donateOpenButton}
+              onPress={() => Linking.openURL(DONATION_URL)}
+            >
+              <Ionicons name="cafe" size={20} color="#050505" />
+              <Text style={styles.donateOpenButtonText}>Buy Me a Coffee</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity 
+              style={styles.copyLinkButton}
+              onPress={async () => {
+                await Clipboard.setStringAsync(DONATION_URL);
+                Alert.alert('Copied!', 'Donation link copied to clipboard');
+              }}
+            >
+              <Ionicons name="copy-outline" size={18} color="#D4AF37" />
+              <Text style={styles.copyLinkText}>Copy Link</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -627,6 +695,22 @@ const styles = StyleSheet.create({
     fontSize: 24,
     fontWeight: 'bold',
     color: '#D4AF37',
+  },
+  donateButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(255, 107, 107, 0.15)',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 20,
+    gap: 6,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 107, 107, 0.3)',
+  },
+  donateButtonText: {
+    color: '#FF6B6B',
+    fontWeight: '600',
+    fontSize: 14,
   },
   content: {
     flex: 1,
@@ -986,5 +1070,46 @@ const styles = StyleSheet.create({
     color: '#050505',
     fontWeight: 'bold',
     fontSize: 16,
+  },
+  // Donation modal styles
+  donateDescription: {
+    color: '#A1A1AA',
+    fontSize: 15,
+    textAlign: 'center',
+    lineHeight: 22,
+    marginBottom: 24,
+    paddingHorizontal: 10,
+  },
+  qrHint: {
+    color: '#71717A',
+    fontSize: 13,
+    textAlign: 'center',
+    marginTop: 12,
+    marginBottom: 20,
+  },
+  donateOpenButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#FFDD00',
+    paddingVertical: 14,
+    borderRadius: 8,
+    gap: 8,
+  },
+  donateOpenButtonText: {
+    color: '#050505',
+    fontWeight: 'bold',
+    fontSize: 16,
+  },
+  copyLinkButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 16,
+    gap: 6,
+  },
+  copyLinkText: {
+    color: '#D4AF37',
+    fontSize: 14,
   },
 });
