@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   View,
   Text,
@@ -9,25 +9,58 @@ import {
   Linking,
   Alert,
   Platform,
+  ScrollView,
+  Dimensions,
+  FlatList,
 } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import * as Clipboard from 'expo-clipboard';
 import QRCode from 'react-native-qrcode-svg';
 import { useApp } from '../context/AppContext';
-import { rdApi } from '../services/api';
+import { rdApi, premiumizeApi, alldebridApi } from '../services/api';
 
 const isTV = Platform.isTV;
+const { width: SCREEN_WIDTH } = Dimensions.get('window');
+const CARD_WIDTH = isTV ? SCREEN_WIDTH * 0.4 : SCREEN_WIDTH * 0.85;
+
+// Debrid service configurations
+const DEBRID_SERVICES = [
+  {
+    id: 'realdebrid',
+    name: 'Real-Debrid',
+    icon: 'cloud-download',
+    color: '#78BB50',
+    description: 'Premium torrent caching & streaming',
+  },
+  {
+    id: 'premiumize',
+    name: 'Premiumize',
+    icon: 'flash',
+    color: '#FFD700',
+    description: 'All-in-one cloud downloader',
+  },
+  {
+    id: 'alldebrid',
+    name: 'AllDebrid',
+    icon: 'rocket',
+    color: '#E74C3C',
+    description: 'Fast unrestricted downloads',
+  },
+];
 
 export default function AuthScreen() {
   const navigation = useNavigation();
-  const { isAuthenticated, saveToken } = useApp();
+  const { isAuthenticated, saveToken, savePremiumizeToken, saveAlldebridToken } = useApp();
+  const flatListRef = useRef(null);
   
+  const [selectedService, setSelectedService] = useState(0);
   const [deviceCode, setDeviceCode] = useState(null);
   const [userCode, setUserCode] = useState(null);
   const [verificationUrl, setVerificationUrl] = useState(null);
   const [isPolling, setIsPolling] = useState(false);
   const [error, setError] = useState(null);
+  const [checkCode, setCheckCode] = useState(null); // For AllDebrid
 
   useEffect(() => {
     if (isAuthenticated) {
@@ -35,26 +68,58 @@ export default function AuthScreen() {
     }
   }, [isAuthenticated]);
 
+  const resetAuth = () => {
+    setDeviceCode(null);
+    setUserCode(null);
+    setVerificationUrl(null);
+    setIsPolling(false);
+    setError(null);
+    setCheckCode(null);
+  };
+
   const startDeviceAuth = async () => {
     setError(null);
+    const service = DEBRID_SERVICES[selectedService];
+    
     try {
-      const response = await rdApi.getDeviceCode();
-      setDeviceCode(response.device_code);
-      setUserCode(response.user_code);
-      setVerificationUrl(response.verification_url);
-      
-      // Auto-copy code to clipboard
-      await Clipboard.setStringAsync(response.user_code);
-      
-      // Start polling
-      pollForAuth(response.device_code, response.interval);
+      if (service.id === 'realdebrid') {
+        const response = await rdApi.getDeviceCode();
+        setDeviceCode(response.device_code);
+        setUserCode(response.user_code);
+        setVerificationUrl(response.verification_url);
+        await Clipboard.setStringAsync(response.user_code);
+        pollForRDAuth(response.device_code, response.interval);
+      } else if (service.id === 'premiumize') {
+        const response = await premiumizeApi.getDeviceCode();
+        if (response.error) {
+          setError(response.error);
+          return;
+        }
+        setDeviceCode(response.device_code);
+        setUserCode(response.user_code);
+        setVerificationUrl(response.verification_uri);
+        await Clipboard.setStringAsync(response.user_code);
+        pollForPMAuth(response.device_code, response.interval || 5);
+      } else if (service.id === 'alldebrid') {
+        const response = await alldebridApi.getPin();
+        if (response.error) {
+          setError(response.error);
+          return;
+        }
+        setUserCode(response.pin);
+        setCheckCode(response.check);
+        setVerificationUrl(response.verification_uri);
+        await Clipboard.setStringAsync(response.pin);
+        pollForADAuth(response.pin, response.check);
+      }
     } catch (err) {
       setError('Failed to start authorization. Please try again.');
       console.error(err);
     }
   };
 
-  const pollForAuth = async (code, interval) => {
+  // Real-Debrid polling
+  const pollForRDAuth = async (code, interval) => {
     setIsPolling(true);
     const maxAttempts = 60;
     let attempts = 0;
@@ -82,197 +147,286 @@ export default function AuthScreen() {
               code
             );
             
-            if (tokenResponse.access_token) {
-              await saveToken(tokenResponse.access_token);
+            if (tokenResponse && tokenResponse.access_token) {
+              await saveToken(tokenResponse.access_token, tokenResponse.refresh_token);
               setIsPolling(false);
+              Alert.alert('Success!', 'Real-Debrid account connected successfully!');
+              navigation.replace('Main');
               return;
             }
-          } catch (tokenErr) {
-            console.error('Token error:', tokenErr);
-            setError('Failed to get access token. Please try again.');
-            setIsPolling(false);
-            return;
+          } catch (tokenError) {
+            console.error('Token error:', tokenError);
           }
         }
       } catch (err) {
-        if (err.response?.status !== 403) {
-          console.error('Poll error:', err.message);
-        }
+        // Continue polling
       }
 
-      if (pollingActive) {
-        attempts++;
-        setTimeout(poll, (interval || 5) * 1000);
-      }
+      attempts++;
+      setTimeout(poll, (interval || 5) * 1000);
     };
 
     poll();
   };
 
-  const copyCode = async () => {
-    if (userCode) {
-      await Clipboard.setStringAsync(userCode);
-      Alert.alert('Copied!', 'Code copied to clipboard. Just paste it on the website.');
-    }
+  // Premiumize polling
+  const pollForPMAuth = async (code, interval) => {
+    setIsPolling(true);
+    const maxAttempts = 60;
+    let attempts = 0;
+
+    const poll = async () => {
+      if (attempts >= maxAttempts) {
+        setIsPolling(false);
+        setError('Authorization timeout. Please try again.');
+        return;
+      }
+
+      try {
+        const response = await premiumizeApi.checkDeviceCode(code);
+        
+        if (response.status === 'success' && response.access_token) {
+          await savePremiumizeToken(response.access_token);
+          setIsPolling(false);
+          Alert.alert('Success!', 'Premiumize account connected successfully!');
+          navigation.replace('Main');
+          return;
+        }
+      } catch (err) {
+        // Continue polling
+      }
+
+      attempts++;
+      setTimeout(poll, interval * 1000);
+    };
+
+    poll();
   };
 
-  const openAuthUrl = () => {
-    if (verificationUrl && userCode) {
-      // For Fire TV, just open the URL - user will need to enter code manually
+  // AllDebrid polling
+  const pollForADAuth = async (pin, check) => {
+    setIsPolling(true);
+    const maxAttempts = 60;
+    let attempts = 0;
+
+    const poll = async () => {
+      if (attempts >= maxAttempts) {
+        setIsPolling(false);
+        setError('Authorization timeout. Please try again.');
+        return;
+      }
+
+      try {
+        const response = await alldebridApi.checkPin(pin, check);
+        
+        if (response.status === 'success' && response.apikey) {
+          await saveAlldebridToken(response.apikey);
+          setIsPolling(false);
+          Alert.alert('Success!', 'AllDebrid account connected successfully!');
+          navigation.replace('Main');
+          return;
+        }
+      } catch (err) {
+        // Continue polling
+      }
+
+      attempts++;
+      setTimeout(poll, 5000);
+    };
+
+    poll();
+  };
+
+  const openVerificationUrl = () => {
+    if (verificationUrl) {
       Linking.openURL(verificationUrl);
     }
   };
 
-  // Generate QR code URL with the code embedded
-  const qrCodeUrl = userCode ? `https://real-debrid.com/device?code=${userCode}` : '';
+  const copyCode = async () => {
+    const code = userCode;
+    if (code) {
+      await Clipboard.setStringAsync(code);
+      Alert.alert('Copied!', 'Code copied to clipboard');
+    }
+  };
+
+  const handleServiceChange = (index) => {
+    resetAuth();
+    setSelectedService(index);
+    flatListRef.current?.scrollToIndex({ index, animated: true });
+  };
+
+  const renderServiceCard = ({ item, index }) => {
+    const isActive = index === selectedService;
+    const service = item;
+    
+    return (
+      <TouchableOpacity
+        style={[
+          styles.serviceCard,
+          isActive && styles.serviceCardActive,
+          isActive && { borderColor: service.color },
+        ]}
+        onPress={() => handleServiceChange(index)}
+        activeOpacity={0.8}
+      >
+        <View style={[styles.serviceIconContainer, { backgroundColor: `${service.color}20` }]}>
+          <Ionicons name={service.icon} size={32} color={service.color} />
+        </View>
+        <Text style={styles.serviceName}>{service.name}</Text>
+        <Text style={styles.serviceDescription}>{service.description}</Text>
+        {isActive && (
+          <View style={[styles.activeIndicator, { backgroundColor: service.color }]} />
+        )}
+      </TouchableOpacity>
+    );
+  };
+
+  const currentService = DEBRID_SERVICES[selectedService];
 
   return (
     <View style={styles.container}>
-      {/* Background */}
-      <View style={styles.background}>
-        <Image 
-          source={require('../../assets/icon.png')} 
-          style={styles.bgLogo}
-          resizeMode="contain"
-        />
-      </View>
-
-      {/* Content */}
-      <View style={styles.content}>
+      <ScrollView 
+        contentContainerStyle={styles.scrollContent}
+        showsVerticalScrollIndicator={false}
+      >
+        {/* Logo */}
         <Image 
           source={require('../../assets/icon.png')} 
           style={styles.logo}
           resizeMode="contain"
         />
         
-        <Text style={styles.title}>THE ALPHA FLIX</Text>
-        <Text style={styles.subtitle}>Premium Streaming Experience</Text>
+        <Text style={styles.title}>Welcome to Alpha Flix</Text>
+        <Text style={styles.subtitle}>Connect a debrid service to start streaming</Text>
 
-        {!userCode ? (
-          <>
-            <Text style={styles.description}>
-              Connect your Real-Debrid account to unlock unlimited streaming
-            </Text>
-            
-            <TouchableOpacity 
-              style={styles.connectButton} 
-              onPress={startDeviceAuth}
-              hasTVPreferredFocus={isTV}
-            >
-              <Ionicons name="link" size={24} color="#050505" />
-              <Text style={styles.connectButtonText}>Connect Real-Debrid</Text>
-            </TouchableOpacity>
-            
-            <TouchableOpacity 
-              style={styles.signupButton}
-              onPress={() => Linking.openURL('https://real-debrid.com/?id=9472133')}
-            >
-              <Text style={styles.signupText}>Don't have Real-Debrid?</Text>
-              <Text style={styles.signupLink}>Sign up here</Text>
-            </TouchableOpacity>
-          </>
+        {/* Service Carousel */}
+        <View style={styles.carouselContainer}>
+          <FlatList
+            ref={flatListRef}
+            data={DEBRID_SERVICES}
+            renderItem={renderServiceCard}
+            keyExtractor={(item) => item.id}
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            snapToInterval={CARD_WIDTH + 16}
+            decelerationRate="fast"
+            contentContainerStyle={styles.carouselContent}
+            onMomentumScrollEnd={(e) => {
+              const index = Math.round(e.nativeEvent.contentOffset.x / (CARD_WIDTH + 16));
+              if (index !== selectedService && index >= 0 && index < DEBRID_SERVICES.length) {
+                setSelectedService(index);
+                resetAuth();
+              }
+            }}
+          />
+          
+          {/* Pagination dots */}
+          <View style={styles.pagination}>
+            {DEBRID_SERVICES.map((service, index) => (
+              <TouchableOpacity
+                key={service.id}
+                style={[
+                  styles.paginationDot,
+                  index === selectedService && { backgroundColor: currentService.color },
+                ]}
+                onPress={() => handleServiceChange(index)}
+              />
+            ))}
+          </View>
+        </View>
+
+        {/* Auth Section */}
+        {!deviceCode && !userCode ? (
+          <TouchableOpacity 
+            style={[styles.connectButton, { backgroundColor: currentService.color }]}
+            onPress={startDeviceAuth}
+          >
+            <Ionicons name={currentService.icon} size={24} color="#050505" />
+            <Text style={styles.connectButtonText}>Connect {currentService.name}</Text>
+          </TouchableOpacity>
         ) : (
-          <View style={[styles.codeContainer, isTV && styles.codeContainerTV]}>
-            {/* TV Layout: Side by side */}
-            {isTV ? (
-              <View style={styles.tvAuthLayout}>
-                {/* Left side - QR Code */}
-                <View style={styles.tvQrSection}>
-                  <Text style={styles.qrLabelTV}>Scan with your phone:</Text>
-                  <View style={styles.qrBoxTV}>
-                    <QRCode
-                      value={qrCodeUrl}
-                      size={160}
-                      color="#050505"
-                      backgroundColor="#FFFFFF"
-                    />
-                  </View>
-                </View>
-
-                {/* Divider */}
-                <View style={styles.tvDivider}>
-                  <View style={styles.tvDividerLine} />
-                  <Text style={styles.tvDividerText}>OR</Text>
-                  <View style={styles.tvDividerLine} />
-                </View>
-
-                {/* Right side - Code */}
-                <View style={styles.tvCodeSection}>
-                  <Text style={styles.tvCodeLabel}>Go to:</Text>
-                  <Text style={styles.tvCodeUrl}>real-debrid.com/device</Text>
-                  
-                  <Text style={styles.tvCodeLabel}>Enter code:</Text>
-                  <View style={styles.tvCodeBox}>
-                    <Text style={styles.tvCode}>{userCode}</Text>
-                  </View>
-                  
-                  <View style={styles.tvAutoCopied}>
-                    <Ionicons name="checkmark-circle" size={18} color="#22C55E" />
-                    <Text style={styles.tvAutoCopiedText}>Auto-copied!</Text>
-                  </View>
-                </View>
+          <View style={styles.authContainer}>
+            {/* QR Code */}
+            {verificationUrl && (
+              <View style={styles.qrContainer}>
+                <QRCode
+                  value={verificationUrl}
+                  size={isTV ? 200 : 160}
+                  backgroundColor="#18181B"
+                  color="#FFFFFF"
+                />
+                <Text style={styles.qrHint}>Scan with your phone</Text>
               </View>
-            ) : (
-              /* Mobile Layout: Vertical */
-              <>
-                <View style={styles.qrContainer}>
-                  <Text style={styles.qrLabel}>Scan with your phone:</Text>
-                  <View style={styles.qrBox}>
-                    <QRCode
-                      value={qrCodeUrl}
-                      size={180}
-                      color="#050505"
-                      backgroundColor="#FFFFFF"
-                    />
-                  </View>
-                </View>
-
-                <Text style={styles.orText}>— OR —</Text>
-
-                <Text style={styles.codeLabel}>Go to:</Text>
-                <TouchableOpacity onPress={openAuthUrl}>
-                  <Text style={styles.codeUrl}>real-debrid.com/device</Text>
-                </TouchableOpacity>
-                
-                <Text style={styles.codeLabel}>Enter this code:</Text>
-                <TouchableOpacity style={styles.codeBox} onPress={copyCode}>
-                  <Text style={styles.code}>{userCode}</Text>
-                  <View style={styles.copiedBadge}>
-                    <Ionicons name="copy-outline" size={14} color="#D4AF37" />
-                    <Text style={styles.copiedText}>Tap to copy</Text>
-                  </View>
-                </TouchableOpacity>
-                
-                <View style={styles.autoCopied}>
-                  <Ionicons name="checkmark-circle" size={16} color="#22C55E" />
-                  <Text style={styles.autoCopiedText}>Code auto-copied to clipboard!</Text>
-                </View>
-              </>
             )}
 
+            {/* Device Code */}
+            <View style={styles.codeContainer}>
+              <Text style={styles.codeLabel}>Enter this code:</Text>
+              <TouchableOpacity onPress={copyCode}>
+                <Text style={[styles.userCode, { color: currentService.color }]}>{userCode}</Text>
+              </TouchableOpacity>
+              <Text style={styles.codeCopied}>Tap to copy • Auto-copied to clipboard</Text>
+            </View>
+
+            {/* Verification URL */}
+            <TouchableOpacity style={styles.urlButton} onPress={openVerificationUrl}>
+              <Ionicons name="open-outline" size={18} color="#D4AF37" />
+              <Text style={styles.urlText}>{verificationUrl}</Text>
+            </TouchableOpacity>
+
+            {/* Status */}
             {isPolling && (
-              <View style={styles.waitingContainer}>
-                <ActivityIndicator size="small" color="#D4AF37" />
-                <Text style={[styles.waitingText, isTV && styles.waitingTextTV]}>Waiting for authorization...</Text>
+              <View style={styles.pollingContainer}>
+                <ActivityIndicator size="small" color={currentService.color} />
+                <Text style={styles.pollingText}>Waiting for authorization...</Text>
               </View>
             )}
+
+            {/* Cancel Button */}
+            <TouchableOpacity style={styles.cancelButton} onPress={resetAuth}>
+              <Text style={styles.cancelText}>Cancel</Text>
+            </TouchableOpacity>
           </View>
         )}
 
+        {/* Error */}
         {error && (
           <View style={styles.errorContainer}>
             <Ionicons name="alert-circle" size={20} color="#EF4444" />
             <Text style={styles.errorText}>{error}</Text>
           </View>
         )}
-      </View>
 
-      {/* Footer */}
-      <View style={styles.footer}>
-        <Text style={styles.footerText}>
-          Developed by The Alpha with AI code clean up
-        </Text>
-      </View>
+        {/* Skip Option */}
+        <TouchableOpacity 
+          style={styles.skipButton}
+          onPress={() => navigation.replace('Main')}
+        >
+          <Text style={styles.skipText}>Skip for now</Text>
+        </TouchableOpacity>
+
+        {/* Footer */}
+        <View style={styles.footer}>
+          <Text style={styles.footerText}>
+            You need at least one debrid service account to stream content.
+          </Text>
+          <View style={styles.serviceLinks}>
+            <TouchableOpacity onPress={() => Linking.openURL('https://real-debrid.com')}>
+              <Text style={styles.linkText}>Real-Debrid</Text>
+            </TouchableOpacity>
+            <Text style={styles.separator}>•</Text>
+            <TouchableOpacity onPress={() => Linking.openURL('https://premiumize.me')}>
+              <Text style={styles.linkText}>Premiumize</Text>
+            </TouchableOpacity>
+            <Text style={styles.separator}>•</Text>
+            <TouchableOpacity onPress={() => Linking.openURL('https://alldebrid.com')}>
+              <Text style={styles.linkText}>AllDebrid</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </ScrollView>
     </View>
   );
 }
@@ -282,273 +436,214 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#050505',
   },
-  background: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
+  scrollContent: {
+    flexGrow: 1,
     alignItems: 'center',
-    justifyContent: 'center',
-    opacity: 0.03,
-  },
-  bgLogo: {
-    width: 400,
-    height: 400,
-  },
-  content: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    padding: isTV ? 48 : 24,
+    paddingVertical: 40,
+    paddingHorizontal: 20,
   },
   logo: {
-    width: isTV ? 140 : 100,
-    height: isTV ? 140 : 100,
-    marginBottom: 16,
+    width: 100,
+    height: 100,
+    marginBottom: 20,
   },
   title: {
-    fontSize: isTV ? 48 : 32,
+    fontSize: 28,
     fontWeight: 'bold',
     color: '#D4AF37',
-    letterSpacing: 4,
     marginBottom: 8,
     textAlign: 'center',
   },
   subtitle: {
-    fontSize: isTV ? 20 : 14,
+    fontSize: 16,
     color: '#A1A1AA',
-    marginBottom: 32,
+    marginBottom: 30,
     textAlign: 'center',
   },
-  description: {
-    fontSize: isTV ? 22 : 16,
+  carouselContainer: {
+    width: '100%',
+    marginBottom: 30,
+  },
+  carouselContent: {
+    paddingHorizontal: (SCREEN_WIDTH - CARD_WIDTH) / 2 - 8,
+  },
+  serviceCard: {
+    width: CARD_WIDTH,
+    backgroundColor: '#18181B',
+    borderRadius: 16,
+    padding: 24,
+    marginHorizontal: 8,
+    alignItems: 'center',
+    borderWidth: 2,
+    borderColor: '#27272A',
+  },
+  serviceCardActive: {
+    borderWidth: 2,
+  },
+  serviceIconContainer: {
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 16,
+  },
+  serviceName: {
+    fontSize: 20,
+    fontWeight: 'bold',
     color: '#E5E5E5',
+    marginBottom: 8,
+  },
+  serviceDescription: {
+    fontSize: 14,
+    color: '#71717A',
     textAlign: 'center',
-    marginBottom: 32,
-    paddingHorizontal: 20,
-    lineHeight: isTV ? 32 : 24,
+  },
+  activeIndicator: {
+    position: 'absolute',
+    bottom: 0,
+    left: '20%',
+    right: '20%',
+    height: 4,
+    borderTopLeftRadius: 4,
+    borderTopRightRadius: 4,
+  },
+  pagination: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    marginTop: 16,
+    gap: 8,
+  },
+  paginationDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: '#3F3F46',
   },
   connectButton: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#D4AF37',
-    paddingHorizontal: isTV ? 48 : 32,
-    paddingVertical: isTV ? 20 : 16,
+    justifyContent: 'center',
+    paddingVertical: 16,
+    paddingHorizontal: 32,
     borderRadius: 12,
     gap: 12,
-    marginBottom: 24,
-    borderWidth: 3,
-    borderColor: 'transparent',
+    width: '100%',
+    maxWidth: 400,
   },
   connectButtonText: {
-    color: '#050505',
-    fontSize: isTV ? 24 : 18,
+    fontSize: 18,
     fontWeight: 'bold',
+    color: '#050505',
   },
-  signupButton: {
+  authContainer: {
     alignItems: 'center',
+    width: '100%',
+    maxWidth: 400,
   },
-  signupText: {
-    color: '#A1A1AA',
-    fontSize: 14,
-    marginBottom: 4,
+  qrContainer: {
+    backgroundColor: '#18181B',
+    padding: 24,
+    borderRadius: 16,
+    alignItems: 'center',
+    marginBottom: 24,
   },
-  signupLink: {
-    color: '#D4AF37',
-    fontSize: 14,
-    textDecorationLine: 'underline',
+  qrHint: {
+    color: '#71717A',
+    fontSize: 13,
+    marginTop: 12,
   },
   codeContainer: {
     alignItems: 'center',
-    width: '100%',
-  },
-  qrContainer: {
-    alignItems: 'center',
-    marginBottom: 16,
-  },
-  qrLabel: {
-    color: '#A1A1AA',
-    fontSize: isTV ? 18 : 14,
-    marginBottom: 12,
-  },
-  qrBox: {
-    padding: isTV ? 20 : 16,
-    backgroundColor: '#FFFFFF',
-    borderRadius: 12,
-  },
-  orText: {
-    color: '#71717A',
-    fontSize: isTV ? 16 : 12,
-    marginVertical: 16,
+    marginBottom: 20,
   },
   codeLabel: {
     color: '#A1A1AA',
-    fontSize: isTV ? 18 : 14,
+    fontSize: 14,
     marginBottom: 8,
   },
-  codeUrl: {
-    color: '#D4AF37',
-    fontSize: isTV ? 28 : 20,
-    textDecorationLine: 'underline',
-    marginBottom: 16,
-  },
-  codeBox: {
-    backgroundColor: '#121212',
-    paddingHorizontal: isTV ? 48 : 32,
-    paddingVertical: isTV ? 24 : 16,
-    borderRadius: 8,
-    borderWidth: 3,
-    borderColor: '#D4AF37',
-    alignItems: 'center',
-    marginBottom: 12,
-  },
-  code: {
-    fontSize: isTV ? 48 : 36,
+  userCode: {
+    fontSize: 36,
     fontWeight: 'bold',
-    color: '#D4AF37',
-    letterSpacing: 8,
-    marginBottom: 8,
+    letterSpacing: 4,
   },
-  copiedBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-  },
-  copiedText: {
-    color: '#D4AF37',
+  codeCopied: {
+    color: '#71717A',
     fontSize: 12,
+    marginTop: 8,
   },
-  autoCopied: {
+  urlButton: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: 'rgba(34, 197, 94, 0.1)',
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 20,
-    gap: 6,
-    marginBottom: 24,
+    gap: 8,
+    marginBottom: 20,
   },
-  autoCopiedText: {
-    color: '#22C55E',
-    fontSize: 12,
+  urlText: {
+    color: '#D4AF37',
+    fontSize: 14,
+    textDecorationLine: 'underline',
   },
-  waitingContainer: {
+  pollingContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
     gap: 12,
-    marginTop: 20,
+    marginBottom: 20,
   },
-  waitingText: {
+  pollingText: {
     color: '#A1A1AA',
     fontSize: 14,
   },
-  waitingTextTV: {
-    fontSize: 18,
+  cancelButton: {
+    paddingVertical: 12,
+    paddingHorizontal: 24,
+  },
+  cancelText: {
+    color: '#EF4444',
+    fontSize: 14,
   },
   errorContainer: {
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: 'rgba(239, 68, 68, 0.1)',
-    paddingHorizontal: 16,
     paddingVertical: 12,
+    paddingHorizontal: 16,
     borderRadius: 8,
-    marginTop: 24,
     gap: 8,
+    marginTop: 16,
   },
   errorText: {
     color: '#EF4444',
     fontSize: 14,
-    flex: 1,
+  },
+  skipButton: {
+    marginTop: 30,
+    paddingVertical: 12,
+  },
+  skipText: {
+    color: '#71717A',
+    fontSize: 14,
+    textDecorationLine: 'underline',
   },
   footer: {
-    padding: 24,
+    marginTop: 40,
     alignItems: 'center',
   },
   footerText: {
     color: '#52525B',
     fontSize: 12,
-  },
-  // TV Layout Styles
-  codeContainerTV: {
-    width: '100%',
-    maxWidth: 800,
-  },
-  tvAuthLayout: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 40,
-    paddingHorizontal: 20,
-  },
-  tvQrSection: {
-    alignItems: 'center',
-  },
-  qrLabelTV: {
-    color: '#A1A1AA',
-    fontSize: 16,
+    textAlign: 'center',
     marginBottom: 12,
   },
-  qrBoxTV: {
-    padding: 16,
-    backgroundColor: '#FFFFFF',
-    borderRadius: 12,
-  },
-  tvDivider: {
-    alignItems: 'center',
-    paddingHorizontal: 20,
-  },
-  tvDividerLine: {
-    width: 2,
-    height: 60,
-    backgroundColor: '#27272A',
-  },
-  tvDividerText: {
-    color: '#71717A',
-    fontSize: 14,
-    paddingVertical: 12,
-  },
-  tvCodeSection: {
-    alignItems: 'center',
-  },
-  tvCodeLabel: {
-    color: '#A1A1AA',
-    fontSize: 16,
-    marginBottom: 8,
-  },
-  tvCodeUrl: {
-    color: '#D4AF37',
-    fontSize: 24,
-    fontWeight: '600',
-    marginBottom: 20,
-  },
-  tvCodeBox: {
-    backgroundColor: '#121212',
-    paddingHorizontal: 40,
-    paddingVertical: 20,
-    borderRadius: 8,
-    borderWidth: 3,
-    borderColor: '#D4AF37',
-    marginBottom: 12,
-  },
-  tvCode: {
-    fontSize: 42,
-    fontWeight: 'bold',
-    color: '#D4AF37',
-    letterSpacing: 8,
-  },
-  tvAutoCopied: {
+  serviceLinks: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: 'rgba(34, 197, 94, 0.1)',
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    borderRadius: 20,
     gap: 8,
   },
-  tvAutoCopiedText: {
-    color: '#22C55E',
-    fontSize: 14,
+  linkText: {
+    color: '#D4AF37',
+    fontSize: 12,
+  },
+  separator: {
+    color: '#52525B',
   },
 });

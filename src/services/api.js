@@ -397,6 +397,74 @@ export const rdApi = {
   },
 };
 
+// Premiumize API
+export const premiumizeApi = {
+  // Get device code for pairing
+  getDeviceCode: async () => {
+    const response = await axios.get(`${API_BASE_URL}/premiumize/pin`);
+    return response.data;
+  },
+
+  // Check if device code has been authorized
+  checkDeviceCode: async (deviceCode) => {
+    const response = await axios.get(`${API_BASE_URL}/premiumize/pin/check`, {
+      params: { device_code: deviceCode },
+    });
+    return response.data;
+  },
+
+  // Get user info
+  getUserInfo: async (apiKey) => {
+    const response = await axios.get(`${API_BASE_URL}/premiumize/user`, {
+      params: { api_key: apiKey },
+    });
+    return response.data;
+  },
+
+  // Check cache availability
+  checkCache: async (apiKey, hashes) => {
+    const response = await axios.post(`${API_BASE_URL}/premiumize/cache`, {
+      api_key: apiKey,
+      hashes: hashes,
+    });
+    return response.data;
+  },
+};
+
+// AllDebrid API
+export const alldebridApi = {
+  // Get PIN for pairing
+  getPin: async () => {
+    const response = await axios.get(`${API_BASE_URL}/alldebrid/pin`);
+    return response.data;
+  },
+
+  // Check if PIN has been authorized
+  checkPin: async (pin, check) => {
+    const response = await axios.get(`${API_BASE_URL}/alldebrid/pin/check`, {
+      params: { pin, check },
+    });
+    return response.data;
+  },
+
+  // Get user info
+  getUserInfo: async (apiKey) => {
+    const response = await axios.get(`${API_BASE_URL}/alldebrid/user`, {
+      params: { apikey: apiKey },
+    });
+    return response.data;
+  },
+
+  // Check instant availability
+  checkCache: async (apiKey, hashes) => {
+    const response = await axios.post(`${API_BASE_URL}/alldebrid/cache`, {
+      apikey: apiKey,
+      hashes: hashes,
+    });
+    return response.data;
+  },
+};
+
 // Trakt API
 export const traktApi = {
   // Get device code for trakt.tv/activate
