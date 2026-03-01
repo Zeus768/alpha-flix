@@ -248,7 +248,6 @@ export default function CustomDrawer(props) {
           text="Search" 
           onPress={() => navigateToScreen('SearchTab')}
         />
-        </TouchableOpacity>
 
         {/* Favorites */}
         <TouchableOpacity 
