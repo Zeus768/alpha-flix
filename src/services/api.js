@@ -598,4 +598,10 @@ export const sportsApi = {
     const response = await axios.get(`${API_BASE_URL}/sports/stream/${streamId}`);
     return response.data;
   },
+
+  // Get stream links with m3u8 extraction
+  getStreamLinks: async (streamId) => {
+    const response = await axios.get(`${API_BASE_URL}/sports/stream/${streamId}`);
+    return response.data;
+  },
 };

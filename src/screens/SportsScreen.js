@@ -12,12 +12,15 @@ import {
   Dimensions,
   Platform,
   RefreshControl,
+  Modal,
+  Alert,
 } from 'react-native';
 import { useNavigation, DrawerActions } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
+import { WebView } from 'react-native-webview';
 import { sportsApi } from '../services/api';
 
-const { width } = Dimensions.get('window');
+const { width, height } = Dimensions.get('window');
 const isTV = Platform.isTV;
 
 export default function SportsScreen() {
@@ -30,6 +33,8 @@ export default function SportsScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const [focusedCategory, setFocusedCategory] = useState(null);
   const [focusedStream, setFocusedStream] = useState(null);
+  const [playerVisible, setPlayerVisible] = useState(false);
+  const [currentStream, setCurrentStream] = useState(null);
 
   useEffect(() => {
     loadCategories();
@@ -60,8 +65,43 @@ export default function SportsScreen() {
   };
 
   const openStream = async (stream) => {
-    // Open stream URL in browser
-    Linking.openURL(stream.url);
+    try {
+      // Get stream links from backend
+      const streamData = await sportsApi.getStreamLinks(stream.stream_id);
+      
+      if (streamData && streamData.streams && streamData.streams.length > 0) {
+        // Found direct streams - play first m3u8 in external player
+        const m3u8Stream = streamData.streams.find(s => s.type === 'm3u8');
+        if (m3u8Stream) {
+          // Open in external video player
+          Linking.openURL(m3u8Stream.url);
+          return;
+        }
+      }
+      
+      // Fallback - open in WebView player
+      setCurrentStream({
+        ...stream,
+        playUrl: streamData?.web_fallback || stream.url,
+      });
+      setPlayerVisible(true);
+    } catch (error) {
+      console.error('Stream error:', error);
+      // Fallback to WebView
+      setCurrentStream(stream);
+      setPlayerVisible(true);
+    }
+  };
+
+  const closePlayer = () => {
+    setPlayerVisible(false);
+    setCurrentStream(null);
+  };
+
+  const openInBrowser = () => {
+    if (currentStream) {
+      Linking.openURL(currentStream.playUrl || currentStream.url);
+    }
   };
 
   const onRefresh = async () => {
@@ -218,6 +258,46 @@ export default function SportsScreen() {
           <View style={{ height: 100 }} />
         </ScrollView>
       )}
+
+      {/* WebView Player Modal */}
+      <Modal
+        visible={playerVisible}
+        animationType="slide"
+        onRequestClose={closePlayer}
+      >
+        <View style={styles.playerContainer}>
+          <View style={styles.playerHeader}>
+            <TouchableOpacity style={styles.playerCloseBtn} onPress={closePlayer}>
+              <Ionicons name="close" size={28} color="#FFFFFF" />
+            </TouchableOpacity>
+            <Text style={styles.playerTitle} numberOfLines={1}>
+              {currentStream?.title || 'Live Stream'}
+            </Text>
+            <TouchableOpacity style={styles.playerBrowserBtn} onPress={openInBrowser}>
+              <Ionicons name="open-outline" size={24} color="#D4AF37" />
+            </TouchableOpacity>
+          </View>
+          
+          {currentStream && (
+            <WebView
+              source={{ uri: currentStream.playUrl || currentStream.url }}
+              style={styles.webview}
+              javaScriptEnabled={true}
+              domStorageEnabled={true}
+              mediaPlaybackRequiresUserAction={false}
+              allowsFullscreenVideo={true}
+              allowsInlineMediaPlayback={true}
+              startInLoadingState={true}
+              renderLoading={() => (
+                <View style={styles.webviewLoading}>
+                  <ActivityIndicator size="large" color="#D4AF37" />
+                  <Text style={styles.webviewLoadingText}>Loading stream...</Text>
+                </View>
+              )}
+            />
+          )}
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -440,5 +520,50 @@ const styles = StyleSheet.create({
   defaultTextTV: {
     fontSize: 18,
     lineHeight: 28,
+  },
+  // Player styles
+  playerContainer: {
+    flex: 1,
+    backgroundColor: '#000000',
+  },
+  playerHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingTop: Platform.OS === 'ios' ? 50 : 10,
+    paddingHorizontal: 16,
+    paddingBottom: 10,
+    backgroundColor: '#121212',
+  },
+  playerCloseBtn: {
+    padding: 8,
+  },
+  playerTitle: {
+    flex: 1,
+    color: '#FFFFFF',
+    fontSize: 16,
+    fontWeight: '600',
+    marginHorizontal: 12,
+  },
+  playerBrowserBtn: {
+    padding: 8,
+  },
+  webview: {
+    flex: 1,
+    backgroundColor: '#000000',
+  },
+  webviewLoading: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#000000',
+  },
+  webviewLoadingText: {
+    color: '#A1A1AA',
+    marginTop: 16,
+    fontSize: 14,
   },
 });

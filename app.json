@@ -2,7 +2,7 @@
   "expo": {
     "name": "Alpha Flix",
     "slug": "alpha-flix",
-    "version": "1.5.0",
+    "version": "1.6.0",
     "orientation": "default",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "dark",
@@ -27,7 +27,7 @@
       "permissions": [
         "android.permission.INTERNET"
       ],
-      "versionCode": 7,
+      "versionCode": 8,
       "isTV": true,
       "intentFilters": [
         {
